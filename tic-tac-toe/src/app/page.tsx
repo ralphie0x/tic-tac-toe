@@ -1,103 +1,179 @@
-import Image from "next/image";
+import { useState, useEffect } from "react";
+
+type Player = "White" | "Black";
+type Tile = Player | null;
+type Mode = "HumanVsHuman" | "HumanVsAI" | "AIvsAI";
+type AIDifficulty = 1 | 2 | 3;
 
 export default function Home() {
-  return (
-    <div className="grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20 font-[family-name:var(--font-geist-sans)]">
-      <main className="flex flex-col gap-[32px] row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="list-inside list-decimal text-sm/6 text-center sm:text-left font-[family-name:var(--font-geist-mono)]">
-          <li className="mb-2 tracking-[-.01em]">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] px-1 py-0.5 rounded font-[family-name:var(--font-geist-mono)] font-semibold">
-              src/app/page.tsx
-            </code>
-            .
-          </li>
-          <li className="tracking-[-.01em]">
-            Save and see your changes instantly.
-          </li>
-        </ol>
+  const [board, setBoard] = useState<Tile[]>(Array(9).fill(null));
+  const [currentPlayer, setCurrentPlayer] = useState<Player>("White");
+  const [mode, setMode] = useState<Mode | null>(null);
+  const [aiLevels, setAiLevels] = useState<{ white: AIDifficulty; black: AIDifficulty }>({
+    white: 1,
+    black: 1,
+  });
+  const [winner, setWinner] = useState<Player | "Draw" | null>(null);
 
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:w-auto"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
-            />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 w-full sm:w-auto md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
+  const lines = [
+    [0, 1, 2], [3, 4, 5], [6, 7, 8], // Rows
+    [0, 3, 6], [1, 4, 7], [2, 5, 8], // Cols
+    [0, 4, 8], [2, 4, 6]             // Diags
+  ];
+
+  const checkWinner = (b: Tile[]): Player | "Draw" | null => {
+    for (let [a, b1, c] of lines) {
+      if (b[a] && b[a] === b[b1] && b[a] === b[c]) return b[a];
+    }
+    return b.every(tile => tile) ? "Draw" : null;
+  };
+
+  const availableMoves = (b: Tile[]) => b.map((v, i) => (v === null ? i : null)).filter(i => i !== null) as number[];
+
+  const makeMove = (index: number) => {
+    if (winner || board[index]) return;
+    const newBoard = [...board];
+    newBoard[index] = currentPlayer;
+    const next = currentPlayer === "White" ? "Black" : "White";
+    setBoard(newBoard);
+    setCurrentPlayer(next);
+    setWinner(checkWinner(newBoard));
+  };
+
+  const aiMove = (difficulty: AIDifficulty, player: Player, b: Tile[]): number => {
+    if (difficulty === 1) {
+      const moves = availableMoves(b);
+      return moves[Math.floor(Math.random() * moves.length)];
+    }
+
+    if (difficulty === 2) {
+      // Try to win
+      for (let i of availableMoves(b)) {
+        const temp = [...b];
+        temp[i] = player;
+        if (checkWinner(temp) === player) return i;
+      }
+      // Block opponent
+      const opponent = player === "White" ? "Black" : "White";
+      for (let i of availableMoves(b)) {
+        const temp = [...b];
+        temp[i] = opponent;
+        if (checkWinner(temp) === opponent) return i;
+      }
+      // Random fallback
+      return aiMove(1, player, b);
+    }
+
+    // Minimax
+    const opponent = player === "White" ? "Black" : "White";
+    const minimax = (b: Tile[], p: Player): [number, number] => {
+      const result = checkWinner(b);
+      if (result === player) return [1, -1];
+      if (result === opponent) return [-1, -1];
+      if (result === "Draw") return [0, -1];
+
+      let bestScore = p === player ? -Infinity : Infinity;
+      let move = -1;
+      for (let i of availableMoves(b)) {
+        const temp = [...b];
+        temp[i] = p;
+        const [score] = minimax(temp, p === "White" ? "Black" : "White");
+        if (p === player) {
+          if (score > bestScore) [bestScore, move] = [score, i];
+        } else {
+          if (score < bestScore) [bestScore, move] = [score, i];
+        }
+      }
+      return [bestScore, move];
+    };
+
+    const [, move] = minimax(b, player);
+    return move;
+  };
+
+  useEffect(() => {
+    if (winner || !mode) return;
+
+    const isAI = (p: Player) =>
+      (mode === "HumanVsAI" && p === "Black") || mode === "AIvsAI";
+
+    if (isAI(currentPlayer)) {
+      const level = aiLevels[currentPlayer.toLowerCase() as "white" | "black"];
+      const move = aiMove(level, currentPlayer, board);
+      const delay = mode === "AIvsAI" ? 500 : 200;
+      setTimeout(() => makeMove(move), delay);
+    }
+  }, [currentPlayer, board, mode, winner]);
+
+  const handleStart = () => {
+    setBoard(Array(9).fill(null));
+    setCurrentPlayer("White");
+    setWinner(null);
+  };
+
+  if (!mode) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center gap-6 p-4">
+        <h1 className="text-3xl font-bold">Tic-Tac-Toe</h1>
+        <div className="flex gap-4">
+          <button onClick={() => setMode("HumanVsHuman")} className="btn">Human vs Human</button>
+          <button onClick={() => setMode("HumanVsAI")} className="btn">Human vs AI</button>
+          <button onClick={() => setMode("AIvsAI")} className="btn">AI vs AI</button>
         </div>
-      </main>
-      <footer className="row-start-3 flex gap-[24px] flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
-          />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
-      </footer>
+        {(mode === "HumanVsAI" || mode === "AIvsAI") && (
+          <div className="flex flex-col gap-2 mt-4">
+            <div>
+              <label>White AI Level: </label>
+              <select onChange={(e) => setAiLevels({ ...aiLevels, white: Number(e.target.value) as AIDifficulty })}>
+                {[1, 2, 3].map(i => <option key={i} value={i}>Level {i}</option>)}
+              </select>
+            </div>
+            <div>
+              <label>Black AI Level: </label>
+              <select onChange={(e) => setAiLevels({ ...aiLevels, black: Number(e.target.value) as AIDifficulty })}>
+                {[1, 2, 3].map(i => <option key={i} value={i}>Level {i}</option>)}
+              </select>
+            </div>
+          </div>
+        )}
+        <button onClick={handleStart} className="btn mt-4">Start Game</button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen flex flex-col items-center justify-center gap-4 p-4">
+      <h1 className="text-2xl font-semibold">Tic-Tac-Toe</h1>
+      <div className="grid grid-cols-3 gap-2">
+        {board.map((tile, i) => (
+          <button
+            key={i}
+            className="w-20 h-20 bg-gray-100 border border-gray-300 text-2xl font-bold"
+            onClick={() => {
+              if ((mode === "HumanVsHuman") || (mode === "HumanVsAI" && currentPlayer === "White"))
+                makeMove(i);
+            }}
+          >
+            {tile === "White" ? "O" : tile === "Black" ? "X" : ""}
+          </button>
+        ))}
+      </div>
+      {winner && <p className="text-lg font-medium">
+        {winner === "Draw" ? "It's a draw!" : `${winner} wins!`}
+      </p>}
+      <div className="flex gap-4 mt-4">
+        <button onClick={handleStart} className="btn">Restart</button>
+        <button onClick={() => setMode(null)} className="btn">Back to Menu</button>
+      </div>
     </div>
   );
+}
+
+// Tailwind CSS utility class for buttons
+const btnStyle = "px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600";
+const style = document.createElement('style');
+style.innerHTML = `.btn { ${btnStyle.replace(/;/g, ' !important;')} }`;
+if (typeof window !== 'undefined' && !document.getElementById('btn-style')) {
+  style.id = 'btn-style';
+  document.head.appendChild(style);
 }
